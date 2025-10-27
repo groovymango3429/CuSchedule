@@ -842,28 +842,42 @@
     }
     
     function getProfessorsForCourse(courseCode) {
-        const parts = courseCode.split(' ');
-        const subject = parts[0];
-        const courseNumber = parts[1];
-        const sections = allCoursesData.filter(course =>
-            course.subject === subject &&
-            course.courseNumber === courseNumber &&
-            canEnrollInSection(course)
-        );
+    const parts = courseCode.split(' ');
+    const subject = parts[0];
+    const courseNumber = parts[1];
+    const sections = allCoursesData.filter(course =>
+        course.subject === subject &&
+        course.courseNumber === courseNumber &&
+        canEnrollInSection(course)
+    );
+    
+    const professorSet = new Set();
+    sections.forEach(section => {
+        // Check root-level faculty array
+        if (section.faculty && section.faculty.length > 0) {
+            section.faculty.forEach(prof => {
+                if (prof.displayName && prof.displayName.trim() !== '') {
+                    professorSet.add(prof.displayName);
+                }
+            });
+        }
         
-        const professorSet = new Set();
-        sections.forEach(section => {
-            if (section.faculty && section.faculty.length > 0) {
-                section.faculty.forEach(prof => {
-                    if (prof.displayName && prof.displayName.trim() !== '') {
-                        professorSet.add(prof.displayName);
-                    }
-                });
-            }
-        });
-        
-        return Array.from(professorSet).sort();
-    }
+        // ALSO check meetingsFaculty array
+        if (section.meetingsFaculty && section.meetingsFaculty.length > 0) {
+            section.meetingsFaculty.forEach(meeting => {
+                if (meeting.faculty && meeting.faculty.length > 0) {
+                    meeting.faculty.forEach(prof => {
+                        if (prof.displayName && prof.displayName.trim() !== '') {
+                            professorSet.add(prof.displayName);
+                        }
+                    });
+                }
+            });
+        }
+    });
+    
+    return Array.from(professorSet).sort();
+}
     
     function setProfessorPreference(courseCode, professorName) {
         professorPreferences[courseCode] = professorName;
