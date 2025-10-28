@@ -228,7 +228,7 @@
         .schedule-header {
             display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;
         }
-        .schedule-info { display: flex; align-items: center; gap: 1rem; }
+        .schedule-info { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
         .score-badge {
             padding: 0.5rem 1rem; font-weight: 700;
         }
@@ -510,6 +510,7 @@
                     <li><strong>Professor Selection:</strong> Choose your preferred professor for each class or leave as "Any Professor"</li>
                     <li><strong>Credit Hour Tracking:</strong> See total credit hours for your selected courses and in each schedule</li>
                     <li><strong>Smart Filtering:</strong> Schedules automatically filter to your professor preferences</li>
+                    <li><strong>NEW: One Busy Day & Long Weekend:</strong> Pack all classes into one day or get Thu/Fri off!</li>
                 </ul>
             </div>
             
@@ -565,7 +566,7 @@
                     <button class="schedule-type" data-type="early">
                         <div class="icon">🌅</div>
                         <div class="label">Early Bird</div>
-                        <div class="desc">8 AM starts, done early</div>
+                        <div class="desc">End as early as possible</div>
                     </button>
                     <button class="schedule-type" data-type="late">
                         <div class="icon">🌙</div>
@@ -575,7 +576,7 @@
                     <button class="schedule-type" data-type="compact">
                         <div class="icon">⚡</div>
                         <div class="label">Compact</div>
-                        <div class="desc">Minimize gaps</div>
+                        <div class="desc">Minimize gaps between classes</div>
                     </button>
                     <button class="schedule-type" data-type="mwf">
                         <div class="icon">📅</div>
@@ -601,6 +602,16 @@
                         <div class="icon">🗓️</div>
                         <div class="label">3-Day Week</div>
                         <div class="desc">Classes 3 days only</div>
+                    </button>
+                    <button class="schedule-type" data-type="one-busy-day">
+                        <div class="icon">📌</div>
+                        <div class="label">One Busy Day</div>
+                        <div class="desc">Pack into 1-2 days</div>
+                    </button>
+                    <button class="schedule-type" data-type="long-weekend">
+                        <div class="icon">🏖️</div>
+                        <div class="label">Long Weekend</div>
+                        <div class="desc">Thu-Fri-Sat-Sun off</div>
                     </button>
                 </div>
             </div>
@@ -652,7 +663,7 @@
     let isRise = false;
     let currentDisplayCount = 20;
     const SCHEDULES_PER_LOAD = 10;
-    let professorPreferences = {}; // Maps courseCode -> preferred professor name (or null for any)
+    let professorPreferences = {};
     
     const courseInput = document.getElementById('courseInput');
     const addCourseBtn = document.getElementById('addCourseBtn');
@@ -780,6 +791,24 @@
         return true;
     }
     
+    function isExamMeeting(meeting) {
+        if (!meeting || !meeting.meetingType) return false;
+        const meetingType = meeting.meetingType.toUpperCase();
+        return meetingType === 'EXAM' || meetingType === 'FINAL' || meetingType === 'FNEX';
+    }
+    
+    function getClassMeetings(section) {
+        if (!section.meetingsFaculty || !Array.isArray(section.meetingsFaculty)) return [];
+        
+        const meetings = [];
+        for (const meetingFaculty of section.meetingsFaculty) {
+            if (meetingFaculty.meetingTime && !isExamMeeting(meetingFaculty.meetingTime)) {
+                meetings.push(meetingFaculty.meetingTime);
+            }
+        }
+        return meetings;
+    }
+    
     function validateCourse(courseCode) {
         const parts = courseCode.trim().split(/\s+/);
         if (parts.length !== 2) return null;
@@ -816,7 +845,7 @@
     function removeCourse(course) {
         selectedCourses = selectedCourses.filter(c => c !== course);
         linkedCourses = linkedCourses.filter(link => !link.courses.includes(course));
-        delete professorPreferences[course]; // Remove professor preference
+        delete professorPreferences[course];
         renderSelectedCourses();
         renderLinkedCourses();
         updateGenerateButton();
@@ -842,42 +871,28 @@
     }
     
     function getProfessorsForCourse(courseCode) {
-    const parts = courseCode.split(' ');
-    const subject = parts[0];
-    const courseNumber = parts[1];
-    const sections = allCoursesData.filter(course =>
-        course.subject === subject &&
-        course.courseNumber === courseNumber &&
-        canEnrollInSection(course)
-    );
-    
-    const professorSet = new Set();
-    sections.forEach(section => {
-        // Check root-level faculty array
-        if (section.faculty && section.faculty.length > 0) {
-            section.faculty.forEach(prof => {
-                if (prof.displayName && prof.displayName.trim() !== '') {
-                    professorSet.add(prof.displayName);
-                }
-            });
-        }
+        const parts = courseCode.split(' ');
+        const subject = parts[0];
+        const courseNumber = parts[1];
+        const sections = allCoursesData.filter(course =>
+            course.subject === subject &&
+            course.courseNumber === courseNumber &&
+            canEnrollInSection(course)
+        );
         
-        // ALSO check meetingsFaculty array
-        if (section.meetingsFaculty && section.meetingsFaculty.length > 0) {
-            section.meetingsFaculty.forEach(meeting => {
-                if (meeting.faculty && meeting.faculty.length > 0) {
-                    meeting.faculty.forEach(prof => {
-                        if (prof.displayName && prof.displayName.trim() !== '') {
-                            professorSet.add(prof.displayName);
-                        }
-                    });
-                }
-            });
-        }
-    });
-    
-    return Array.from(professorSet).sort();
-}
+        const professorSet = new Set();
+        sections.forEach(section => {
+            if (section.faculty && section.faculty.length > 0) {
+                section.faculty.forEach(prof => {
+                    if (prof.displayName && prof.displayName.trim() !== '') {
+                        professorSet.add(prof.displayName);
+                    }
+                });
+            }
+        });
+        
+        return Array.from(professorSet).sort();
+    }
     
     function setProfessorPreference(courseCode, professorName) {
         professorPreferences[courseCode] = professorName;
@@ -1047,9 +1062,13 @@
     function scoreSchedule(sections) {
         let score = 100;
         
-        const meetings = sections
-            .map(s => s.meetingsFaculty && s.meetingsFaculty[0]?.meetingTime)
-            .filter(m => m && m.beginTime && m.endTime && parseTime(m.beginTime) > 0);
+        const allMeetings = [];
+        sections.forEach(section => {
+            const classMeetings = getClassMeetings(section);
+            allMeetings.push(...classMeetings);
+        });
+        
+        const meetings = allMeetings.filter(m => m && m.beginTime && m.endTime && parseTime(m.beginTime) > 0);
         
         if (meetings.length === 0) return 70;
         
@@ -1084,29 +1103,39 @@
             return (end <= 720) || (start >= 840);
         });
         
+        // Calculate individual day loads
+        const dayLoads = {M: 0, T: 0, W: 0, R: 0, F: 0};
+        meetings.forEach(m => {
+            const duration = parseTime(m.endTime) - parseTime(m.beginTime);
+            if (m.monday) dayLoads.M += duration;
+            if (m.tuesday) dayLoads.T += duration;
+            if (m.wednesday) dayLoads.W += duration;
+            if (m.thursday) dayLoads.R += duration;
+            if (m.friday) dayLoads.F += duration;
+        });
+        const maxDayLoad = Math.max(...Object.values(dayLoads));
+        const nonZeroDays = Object.values(dayLoads).filter(l => l > 0);
+        const avgDayLoad = nonZeroDays.length > 0 ? nonZeroDays.reduce((a,b) => a+b) / nonZeroDays.length : 0;
+        
         if (scheduleType === 'early') {
-            const eightAMCount = times.filter(t => t === 480).length;
-            const totalClasses = times.length;
+            // EARLY BIRD: Prioritize earliest end time above all else
+            // Subtract points for later end times
+            if (latestEnd <= 720) score += 80;  // Done by noon!
+            else if (latestEnd <= 780) score += 60; // Done by 1 PM
+            else if (latestEnd <= 840) score += 40; // Done by 2 PM
+            else if (latestEnd <= 900) score += 20; // Done by 3 PM
+            else if (latestEnd <= 960) score += 5;  // Done by 4 PM
+            else score -= (latestEnd - 960) / 10;  // Penalty for later
             
-            if (eightAMCount === totalClasses) {
-                score += 100;
-            } else {
-                score += eightAMCount * 40;
-                const nonEightAMCount = totalClasses - eightAMCount;
-                score -= nonEightAMCount * 25;
-            }
+            // Bonus for early starts
+            if (earliestStart === 480) score += 30;  // 8 AM start
+            else if (earliestStart === 510) score += 20;  // 8:30 AM
+            else if (earliestStart === 540) score += 10;  // 9 AM
+            else if (earliestStart > 600) score -= 30;  // Penalty for late starts
             
-            if (earliestStart === 480) score += 20;
-            else if (earliestStart === 510) score += 10;
-            else if (earliestStart > 540) score -= 40;
-            
-            if (latestEnd <= 720) score += 40;
-            else if (latestEnd <= 780) score += 30;
-            else if (latestEnd <= 840) score += 20;
-            else if (latestEnd <= 900) score += 10;
-            else if (latestEnd > 960) score -= 35;
-            
-            if (gapTime > 180) score -= 10;
+            // Minimize gaps (but secondary to ending early)
+            if (gapTime <= 60) score += 15;
+            else if (gapTime > 120) score -= (gapTime / 30);
             
         } else if (scheduleType === 'late') {
             if (earliestStart >= 720) score += 25;
@@ -1118,17 +1147,25 @@
             else if (latestEnd >= 960) score += 10;
             
         } else if (scheduleType === 'compact') {
-            if (gapTime <= 30) score += 35;
-            else if (gapTime <= 60) score += 28;
-            else if (gapTime <= 90) score += 18;
-            else if (gapTime <= 120) score += 8;
-            else if (gapTime > 180) score -= 25;
-            else if (gapTime > 240) score -= 35;
+            // COMPACT: Absolutely minimize gaps - this is the priority
+            if (gapTime === 0) score += 80;  // Perfect!
+            else if (gapTime <= 15) score += 70;  // Basically perfect
+            else if (gapTime <= 30) score += 60;
+            else if (gapTime <= 45) score += 45;
+            else if (gapTime <= 60) score += 30;
+            else if (gapTime <= 90) score += 15;
+            else if (gapTime <= 120) score += 5;
+            else score -= (gapTime / 10);  // Heavy penalty for gaps
             
-            if (totalSpan <= 240) score += 25;
-            else if (totalSpan <= 300) score += 18;
-            else if (totalSpan <= 360) score += 12;
-            else if (totalSpan > 480) score -= 20;
+            // Bonus for short total span
+            if (totalSpan <= 180) score += 40;  // 3 hours or less
+            else if (totalSpan <= 240) score += 30;  // 4 hours
+            else if (totalSpan <= 300) score += 20;  // 5 hours
+            else if (totalSpan <= 360) score += 10;  // 6 hours
+            else if (totalSpan > 480) score -= 25;
+            
+            // Slight preference for back-to-back classes
+            if (meetings.length > 1 && gapTime < 30) score += 20;
             
         } else if (scheduleType === 'mwf') {
             const mwfRatio = meetings.length > 0 ? mwfCount / meetings.length : 0;
@@ -1185,6 +1222,36 @@
                 if (uniqueDays.has('M') && uniqueDays.has('W') && uniqueDays.has('F')) score += 15;
             }
             
+        } else if (scheduleType === 'one-busy-day') {
+            // ONE BUSY DAY: Pack all into 1-2 days
+            if (numDays === 1) score += 100;  // Perfect!
+            else if (numDays === 2) score += 60;
+            else if (numDays === 3) score += 20;
+            else score -= (numDays * 15);
+            
+            // Reward having one very busy day
+            if (maxDayLoad >= 300) score += 30;  // 5+ hours one day
+            if (maxDayLoad >= 360) score += 20;  // 6+ hours
+            
+            // Prefer TR (longer class sessions)
+            if (uniqueDays.has('T') && uniqueDays.has('R') && numDays <= 2) score += 15;
+            
+        } else if (scheduleType === 'long-weekend') {
+            // LONG WEEKEND: No Thursday or Friday
+            const hasThursday = uniqueDays.has('R');
+            const hasFri = uniqueDays.has('F');
+            
+            if (!hasThursday && !hasFri) {
+                score += 80;  // Perfect long weekend!
+                
+                // All classes MW or MWF
+                if (uniqueDays.has('M') && uniqueDays.has('W')) score += 20;
+                if (uniqueDays.size === 2) score += 10;  // Just 2 days
+            } else {
+                if (hasThursday) score -= 40;
+                if (hasFri) score -= 40;
+            }
+            
         } else if (scheduleType === 'balanced') {
             if (earliestStart >= 480 && earliestStart <= 600) score += 15;
             else if (earliestStart < 420 || earliestStart > 720) score -= 15;
@@ -1199,13 +1266,15 @@
             if (dayDiversity === 2) score += 12;
         }
         
-        if (!hasFriday && scheduleType !== 'mwf' && scheduleType !== 'no-friday' && meetings.length > 1) {
+        // General bonuses
+        if (!hasFriday && scheduleType !== 'mwf' && scheduleType !== 'no-friday' && scheduleType !== 'long-weekend' && meetings.length > 1) {
             score += 10;
         }
         
-        if (scheduleType !== 'early' && earliestStart < 450) score -= 12;
-        if (scheduleType !== 'late' && latestEnd > 1050) score -= 12;
+        if (scheduleType !== 'early' && scheduleType        !== 'late' && earliestStart < 450) score -= 12;
+        if (scheduleType !== 'late' && scheduleType !== 'one-busy-day' && latestEnd > 1050) score -= 12;
         
+        // Small bonus for reasonable gaps (unless compact mode)
         if (scheduleType !== 'compact' && scheduleType !== 'long-lunch' && gapTime >= 60 && gapTime <= 180) {
             score += 6;
         }
@@ -1222,9 +1291,14 @@
     
     function getScheduleDiversity(schedule, existingSchedules) {
         let diversityScore = 0;
-        const meetings = schedule.sections
-            .map(s => s.meetingsFaculty && s.meetingsFaculty[0]?.meetingTime)
-            .filter(m => m && m.beginTime && m.endTime);
+        
+        const allMeetings = [];
+        schedule.sections.forEach(section => {
+            const classMeetings = getClassMeetings(section);
+            allMeetings.push(...classMeetings);
+        });
+        
+        const meetings = allMeetings.filter(m => m && m.beginTime && m.endTime);
         
         const times = meetings.map(m => parseTime(m.beginTime));
         const earliestStart = times.length > 0 ? Math.min(...times) : 0;
@@ -1241,9 +1315,13 @@
         });
         
         existingSchedules.forEach(existing => {
-            const existingMeetings = existing.sections
-                .map(s => s.meetingsFaculty && s.meetingsFaculty[0]?.meetingTime)
-                .filter(m => m && m.beginTime && m.endTime);
+            const existingAllMeetings = [];
+            existing.sections.forEach(section => {
+                const classMeetings = getClassMeetings(section);
+                existingAllMeetings.push(...classMeetings);
+            });
+            
+            const existingMeetings = existingAllMeetings.filter(m => m && m.beginTime && m.endTime);
             
             const existingTimes = existingMeetings.map(m => parseTime(m.beginTime));
             const existingEarliestStart = existingTimes.length > 0 ? Math.min(...existingTimes) : 0;
@@ -1367,11 +1445,15 @@
             
             let scheduleArray = Array.from(uniqueSchedules.values());
             
+            // Special filtering for specific schedule types
             if (scheduleType === 'no-friday') {
                 const fridayFreeSchedules = scheduleArray.filter(sections => {
-                    const meetings = sections
-                        .map(s => s.meetingsFaculty && s.meetingsFaculty[0]?.meetingTime)
-                        .filter(m => m && m.beginTime && m.endTime);
+                    const allMeetings = [];
+                    sections.forEach(section => {
+                        const classMeetings = getClassMeetings(section);
+                        allMeetings.push(...classMeetings);
+                    });
+                    const meetings = allMeetings.filter(m => m && m.beginTime && m.endTime);
                     return !meetings.some(m => m.friday);
                 });
                 
@@ -1379,9 +1461,12 @@
                     scheduleArray = fridayFreeSchedules;
                 } else if (fridayFreeSchedules.length > 0) {
                     const fridayMinimizedSchedules = scheduleArray.filter(sections => {
-                        const meetings = sections
-                            .map(s => s.meetingsFaculty && s.meetingsFaculty[0]?.meetingTime)
-                            .filter(m => m && m.beginTime && m.endTime);
+                        const allMeetings = [];
+                        sections.forEach(section => {
+                            const classMeetings = getClassMeetings(section);
+                            allMeetings.push(...classMeetings);
+                        });
+                        const meetings = allMeetings.filter(m => m && m.beginTime && m.endTime);
                         const fridayCount = meetings.filter(m => m.friday).length;
                         return fridayCount <= 1;
                     });
@@ -1390,21 +1475,19 @@
                 }
             }
             
-            if (scheduleType === 'early') {
-                const all8AMSchedules = scheduleArray.filter(sections => {
-                    const meetings = sections
-                        .map(s => s.meetingsFaculty && s.meetingsFaculty[0]?.meetingTime)
-                        .filter(m => m && m.beginTime && m.endTime && parseTime(m.beginTime) > 0);
-                    
-                    if (meetings.length === 0) return false;
-                    
-                    return meetings.every(m => parseTime(m.beginTime) === 480);
+            if (scheduleType === 'long-weekend') {
+                const longWeekendSchedules = scheduleArray.filter(sections => {
+                    const allMeetings = [];
+                    sections.forEach(section => {
+                        const classMeetings = getClassMeetings(section);
+                        allMeetings.push(...classMeetings);
+                    });
+                    const meetings = allMeetings.filter(m => m && m.beginTime && m.endTime);
+                    return !meetings.some(m => m.thursday || m.friday);
                 });
                 
-                if (all8AMSchedules.length > 0) {
-                    scheduleArray = all8AMSchedules.concat(
-                        scheduleArray.filter(s => !all8AMSchedules.includes(s))
-                    );
+                if (longWeekendSchedules.length >= 3) {
+                    scheduleArray = longWeekendSchedules;
                 }
             }
             
@@ -1482,7 +1565,8 @@
                 if (isValidLinkedSchedule(currentSchedule)) {
                     combinations.push([...currentSchedule]);
                 }
-                return;            }
+                return;
+            }
             const courseKey = courseKeys[index];
             const sections = courseSections[courseKey];
             for (const section of sections) {
@@ -1499,28 +1583,34 @@
     }
     
     function hasTimeConflict(schedule, newSection) {
-        const newMeeting = newSection.meetingsFaculty && newSection.meetingsFaculty[0]?.meetingTime;
-        if (!newMeeting || !newMeeting.beginTime || !newMeeting.endTime) return false;
+        const newMeetings = getClassMeetings(newSection);
         
-        const newStart = parseTime(newMeeting.beginTime);
-        const newEnd = parseTime(newMeeting.endTime);
-        if (newStart === 0 || newEnd === 0) return false;
-        
-        for (const section of schedule) {
-            const meeting = section.meetingsFaculty && section.meetingsFaculty[0]?.meetingTime;
-            if (!meeting || !meeting.beginTime || !meeting.endTime) continue;
+        for (const newMeeting of newMeetings) {
+            if (!newMeeting || !newMeeting.beginTime || !newMeeting.endTime) continue;
             
-            const start = parseTime(meeting.beginTime);
-            const end = parseTime(meeting.endTime);
-            if (start === 0 || end === 0) continue;
+            const newStart = parseTime(newMeeting.beginTime);
+            const newEnd = parseTime(newMeeting.endTime);
+            if (newStart === 0 || newEnd === 0) continue;
             
-            const sharedDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].some(day => 
-                meeting[day] && newMeeting[day]
-            );
-            
-            if (sharedDays) {
-                if ((start < newEnd && end > newStart)) {
-                    return true;
+            for (const section of schedule) {
+                const meetings = getClassMeetings(section);
+                
+                for (const meeting of meetings) {
+                    if (!meeting || !meeting.beginTime || !meeting.endTime) continue;
+                    
+                    const start = parseTime(meeting.beginTime);
+                    const end = parseTime(meeting.endTime);
+                    if (start === 0 || end === 0) continue;
+                    
+                    const sharedDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].some(day => 
+                        meeting[day] && newMeeting[day]
+                    );
+                    
+                    if (sharedDays) {
+                        if ((start < newEnd && end > newStart)) {
+                            return true;
+                        }
+                    }
                 }
             }
         }
@@ -1603,26 +1693,29 @@
             
             const dayName = day.toLowerCase();
             sections.forEach(section => {
-                const meeting = section.meetingsFaculty && section.meetingsFaculty[0]?.meetingTime;
-                if (!meeting || !meeting[dayName]) return;
+                const meetings = getClassMeetings(section);
                 
-                const startMinutes = parseTime(meeting.beginTime);
-                const endMinutes = parseTime(meeting.endTime);
-                
-                const topPosition = (startMinutes - (7 * 60));
-                const height = endMinutes - startMinutes;
-                
-                const courseCode = `${section.subject} ${section.courseNumber}`;
-                const location = meeting.building && meeting.room ? `${meeting.building} ${meeting.room}` : 'TBA';
-                
-                calendarHTML += `
-                    <div class="class-block" style="top: ${topPosition}px; height: ${height}px;" 
-                         title="${section.courseTitle}&#10;${formatTime(meeting.beginTime)} - ${formatTime(meeting.endTime)}&#10;${location}">
-                        <div class="class-block-title">${courseCode}</div>
-                        <div class="class-block-time">${formatTime(meeting.beginTime)} - ${formatTime(meeting.endTime)}</div>
-                        ${height > 60 ? `<div class="class-block-location">${location}</div>` : ''}
-                    </div>
-                `;
+                meetings.forEach(meeting => {
+                    if (!meeting || !meeting[dayName]) return;
+                    
+                    const startMinutes = parseTime(meeting.beginTime);
+                    const endMinutes = parseTime(meeting.endTime);
+                    
+                    const topPosition = (startMinutes - (7 * 60));
+                    const height = endMinutes - startMinutes;
+                    
+                    const courseCode = `${section.subject} ${section.courseNumber}`;
+                    const location = meeting.building && meeting.room ? `${meeting.building} ${meeting.room}` : 'TBA';
+                    
+                    calendarHTML += `
+                        <div class="class-block" style="top: ${topPosition}px; height: ${height}px;" 
+                             title="${section.courseTitle}&#10;${formatTime(meeting.beginTime)} - ${formatTime(meeting.endTime)}&#10;${location}">
+                            <div class="class-block-title">${courseCode}</div>
+                            <div class="class-block-time">${formatTime(meeting.beginTime)} - ${formatTime(meeting.endTime)}</div>
+                            ${height > 60 ? `<div class="class-block-location">${location}</div>` : ''}
+                        </div>
+                    `;
+                });
             });
             
             calendarHTML += '</div></div>';
@@ -1652,6 +1745,27 @@
                 totalCredits += credits;
             });
             
+            // Calculate schedule stats
+            const allMeetings = [];
+            schedule.sections.forEach(section => {
+                const classMeetings = getClassMeetings(section);
+                allMeetings.push(...classMeetings);
+            });
+            const meetings = allMeetings.filter(m => m && m.beginTime && m.endTime);
+            const times = meetings.map(m => parseTime(m.beginTime));
+            const endTimes = meetings.map(m => parseTime(m.endTime));
+            const earliestStart = times.length > 0 ? Math.min(...times) : 0;
+            const latestEnd = endTimes.length > 0 ? Math.max(...endTimes) : 0;
+            
+            const uniqueDays = new Set();
+            meetings.forEach(m => {
+                if (m.monday) uniqueDays.add('M');
+                if (m.tuesday) uniqueDays.add('T');
+                if (m.wednesday) uniqueDays.add('W');
+                if (m.thursday) uniqueDays.add('R');
+                if (m.friday) uniqueDays.add('F');
+            });
+            
             // Check if any professor preferences were applied
             const appliedPreferences = [];
             schedule.sections.forEach(section => {
@@ -1669,12 +1783,14 @@
                     <div class="schedule-header">
                         <div class="schedule-info">
                             <div class="score-badge ${scoreClass}">Score: ${scoreToDisplay}%</div>
-                            <span style="color: #6b7280;">Schedule Option ${schedule.id}</span>
-                            <span style="color: #0369a1; font-weight: 600; margin-left: 1rem;">📚 ${totalCredits} Credits</span>
+                            <span style="color: #6b7280;">Schedule #${schedule.id}</span>
+                            <span style="color: #0369a1; font-weight: 600;">📚 ${totalCredits} hrs</span>
+                            <span style="color: #6b7280; font-size: 0.875rem;">⏰ ${formatTime(earliestStart.toString().padStart(4, '0'))} - ${formatTime(latestEnd.toString().padStart(4, '0'))}</span>
+                            <span style="color: #6b7280; font-size: 0.875rem;">📅 ${uniqueDays.size} days/week</span>
                         </div>
-                        <div style="display: flex; gap: 0.5rem;">
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                             <button class="btn-toggle" id="toggle-${schedule.id}" onclick="toggleView(${schedule.id})">
-                                <i class="fas fa-list"></i> Show Section Numbers
+                                <i class="fas fa-list"></i> Show Sections
                             </button>
                             <button class="btn-export" onclick="exportSchedule(${schedule.id})">
                                 <i class="fas fa-download"></i> Export
@@ -1692,7 +1808,7 @@
                     
                     <div id="list-${schedule.id}" class="list-view">
                         ${schedule.sections.map(section => {
-                            const meeting = section.meetingsFaculty && section.meetingsFaculty[0]?.meetingTime;
+                            const meetings = getClassMeetings(section);
                             const faculty = section.faculty && section.faculty[0];
                             return `
                                 <div class="class-section">
@@ -1703,7 +1819,7 @@
                                     </div>
                                     <div class="class-name">${section.courseTitle}</div>
                                     <div class="class-details">
-                                        ${meeting ? `
+                                        ${meetings.length > 0 ? meetings.map(meeting => `
                                             <div class="detail-item">
                                                 <i class="fas fa-clock detail-icon"></i>
                                                 <span>${getDaysString(meeting)} ${formatTime(meeting.beginTime)} - ${formatTime(meeting.endTime)}</span>
@@ -1712,7 +1828,7 @@
                                                 <i class="fas fa-map-marker-alt detail-icon"></i>
                                                 <span>${meeting.building} ${meeting.room}</span>
                                             </div>
-                                        ` : '<div class="detail-item">Time: TBA</div>'}
+                                        `).join('') : '<div class="detail-item">Time: TBA</div>'}
                                         ${faculty ? `
                                             <div class="detail-item">
                                                 <i class="fas fa-user detail-icon"></i>
@@ -1754,16 +1870,26 @@
         
         const text = `Clemson Schedule ${scheduleId} - Score: ${scoreToDisplay}%\nSpring 2026\nTotal Credits: ${totalCredits}\n\n` +
             schedule.sections.map(section => {
-                const meeting = section.meetingsFaculty && section.meetingsFaculty[0]?.meetingTime;
+                const meetings = getClassMeetings(section);
                 const faculty = section.faculty && section.faculty[0];
                 const badges = [];
                 if (hasAttribute(section, 'HONR')) badges.push('[HONORS]');
                 if (isRiseOnly(section)) badges.push('[RiSE]');
                 const credits = section.creditHourLow || section.creditHours || 0;
+                
+                let timeInfo = '';
+                if (meetings.length > 0) {
+                    timeInfo = meetings.map(meeting => 
+                        `Time: ${getDaysString(meeting)} ${formatTime(meeting.beginTime)} - ${formatTime(meeting.endTime)}\n` +
+                        `Location: ${meeting.building} ${meeting.room}`
+                    ).join('\n');
+                } else {
+                    timeInfo = 'Time: TBA';
+                }
+                
                 return `${section.subject} ${section.courseNumber}-${section.sequenceNumber} (${credits} hrs) ${badges.join(' ')}\n${section.courseTitle}\n` +
                     `CRN: ${section.courseReferenceNumber}\n` +
-                    (meeting ? `Time: ${getDaysString(meeting)} ${formatTime(meeting.beginTime)} - ${formatTime(meeting.endTime)}\n` +
-                    `Location: ${meeting.building} ${meeting.room}\n` : 'Time: TBA\n') +
+                    timeInfo + '\n' +
                     (faculty ? `Instructor: ${faculty.displayName}\n` : '') + '\n';
             }).join('\n');
         const blob = new Blob([text], { type: 'text/plain' });
